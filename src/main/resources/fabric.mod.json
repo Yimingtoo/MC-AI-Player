@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "mc_ai_player",
+  "version": "${version}",
+  "name": "MC_AI_Player",
+  "description": "",
+  "authors": [],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/mc_ai_player/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-datagen": [
+      "com.yiming.mc_ai_player.client.Mc_ai_playerDataGenerator"
+    ],
+    "client": [
+      "com.yiming.mc_ai_player.client.Mc_ai_playerClient"
+    ],
+    "main": [
+      "com.yiming.mc_ai_player.Mc_ai_player"
+    ]
+  },
+  "mixins": [
+    "mc_ai_player.mixins.json",
+    {
+      "config": "mc_ai_player.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
