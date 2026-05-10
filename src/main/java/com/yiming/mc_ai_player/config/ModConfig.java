@@ -8,6 +8,7 @@ public class ModConfig {
     public boolean enableBlockOperations = true;
     public boolean enablePlayerMovement = true;
     public boolean enableCommands = true;
+    public int verticalQueryRange = 5;
     public List<String> blockBlacklist = List.of("minecraft:bedrock", "minecraft:barrier", "minecraft:command_block", "minecraft:chain_command_block", "minecraft:repeating_command_block");
     public List<String> commandBlacklistPrefixes = List.of("/op", "/deop", "/stop", "/ban", "/ban-ip", "/kick", "/whitelist", "/pardon");
     public List<String> allowedDimensions = List.of("minecraft:overworld", "minecraft:the_nether", "minecraft:the_end");

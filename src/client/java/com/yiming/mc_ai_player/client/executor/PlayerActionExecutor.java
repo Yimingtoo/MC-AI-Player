@@ -2,7 +2,6 @@ package com.yiming.mc_ai_player.client.executor;
 
 import com.yiming.mc_ai_player.api.model.*;
 import com.yiming.mc_ai_player.api.model.action.MovePlayerRequest;
-import com.yiming.mc_ai_player.config.ModConfig;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
@@ -17,30 +16,20 @@ import net.minecraft.util.math.Vec3d;
 import java.util.*;
 
 public class PlayerActionExecutor extends ActionExecutor {
-    private final ModConfig config;
 
-    public PlayerActionExecutor(ModConfig config) {
-        this.config = config;
+    public PlayerActionExecutor() {
     }
 
     public ActionResponse handleGetPosition() {
         return runOnServerThread(server -> {
             ServerPlayerEntity player = getPlayer(server);
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
-
-            PlayerInfo info = new PlayerInfo(
-                player.getX(), player.getY(), player.getZ(),
-                player.getYaw(), player.getPitch(),
-                player.getEntityWorld().getRegistryKey().getValue().toString(),
-                player.getHealth(),
-                player.interactionManager.getGameMode().asString()
-            );
-            return ActionResponse.ok(info);
+            return ActionResponse.ok(buildPlayerInfo(player));
         });
     }
 
     public ActionResponse handleMove(MovePlayerRequest req) {
-        if (!config.enablePlayerMovement) {
+        if (!getConfig().enablePlayerMovement) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Player movement is disabled");
         }
 
@@ -63,40 +52,23 @@ public class PlayerActionExecutor extends ActionExecutor {
             }
 
             String dimension = req.dimension != null ? req.dimension : player.getEntityWorld().getRegistryKey().getValue().toString();
-            if (!config.allowedDimensions.contains(dimension)) {
+            if (!getConfig().allowedDimensions.contains(dimension)) {
                 return ActionResponse.error(ErrorCode.DIMENSION_DISALLOWED, "Dimension not allowed: " + dimension);
             }
 
-            ServerWorld targetWorld = null;
-            Identifier dimId = Identifier.tryParse(dimension);
-            if (dimId != null) {
-                for (ServerWorld w : server.getWorlds()) {
-                    if (w.getRegistryKey().getValue().equals(dimId)) {
-                        targetWorld = w;
-                        break;
-                    }
-                }
-            }
-
+            ServerWorld targetWorld = getWorld(server, dimension);
             if (targetWorld == null) {
-                targetWorld = player.getEntityWorld();
+                return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "Invalid dimension: " + dimension);
             }
 
             player.teleport(targetWorld, x, y, z, java.util.EnumSet.noneOf(PositionFlag.class), req.yaw, req.pitch, false);
 
-            PlayerInfo info = new PlayerInfo(
-                player.getX(), player.getY(), player.getZ(),
-                player.getYaw(), player.getPitch(),
-                targetWorld.getRegistryKey().getValue().toString(),
-                player.getHealth(),
-                player.interactionManager.getGameMode().asString()
-            );
-            return ActionResponse.ok(info);
+            return ActionResponse.ok(buildPlayerInfo(player));
         });
     }
 
     public ActionResponse handleLook(float yaw, float pitch) {
-        if (!config.enablePlayerMovement) {
+        if (!getConfig().enablePlayerMovement) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Player movement is disabled");
         }
 
@@ -107,18 +79,18 @@ public class PlayerActionExecutor extends ActionExecutor {
             player.setYaw(yaw);
             player.setPitch(pitch);
 
-            PlayerInfo info = new PlayerInfo(
-                player.getX(), player.getY(), player.getZ(),
-                player.getYaw(), player.getPitch(),
-                player.getEntityWorld().getRegistryKey().getValue().toString(),
-                player.getHealth(),
-                player.interactionManager.getGameMode().asString()
-            );
-            return ActionResponse.ok(info);
+            return ActionResponse.ok(buildPlayerInfo(player));
         });
     }
 
     public ActionResponse handleSendChat(String message) {
+        if (message == null || message.isEmpty()) {
+            return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "message is required");
+        }
+        if (message.length() > 256) {
+            return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "Message too long (max 256 characters)");
+        }
+
         return runOnServerThread(server -> {
             ServerPlayerEntity player = getPlayer(server);
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
@@ -129,7 +101,7 @@ public class PlayerActionExecutor extends ActionExecutor {
     }
 
     public ActionResponse handleJump() {
-        if (!config.enablePlayerMovement) {
+        if (!getConfig().enablePlayerMovement) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Player movement is disabled");
         }
 
@@ -170,4 +142,13 @@ public class PlayerActionExecutor extends ActionExecutor {
         });
     }
 
+    private static PlayerInfo buildPlayerInfo(ServerPlayerEntity player) {
+        return new PlayerInfo(
+            player.getX(), player.getY(), player.getZ(),
+            player.getYaw(), player.getPitch(),
+            player.getEntityWorld().getRegistryKey().getValue().toString(),
+            player.getHealth(),
+            player.interactionManager.getGameMode().asString()
+        );
+    }
 }

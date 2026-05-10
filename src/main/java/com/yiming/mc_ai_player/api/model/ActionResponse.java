@@ -4,7 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 
 public class ActionResponse {
-    private static final Gson GSON = new Gson();
+    public static final Gson GSON = new Gson();
 
     public boolean success;
     public JsonElement data;

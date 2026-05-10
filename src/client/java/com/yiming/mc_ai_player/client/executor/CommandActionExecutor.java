@@ -2,7 +2,6 @@ package com.yiming.mc_ai_player.client.executor;
 
 import com.yiming.mc_ai_player.api.model.*;
 import com.yiming.mc_ai_player.api.model.action.ExecuteCommandRequest;
-import com.yiming.mc_ai_player.config.ModConfig;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandOutput;
 import net.minecraft.server.command.ServerCommandSource;
@@ -16,14 +15,12 @@ import java.util.Map;
 
 public class CommandActionExecutor extends ActionExecutor {
     private static final Logger LOGGER = LoggerFactory.getLogger("mc_ai_player");
-    private final ModConfig config;
 
-    public CommandActionExecutor(ModConfig config) {
-        this.config = config;
+    public CommandActionExecutor() {
     }
 
     public ActionResponse handleExecute(ExecuteCommandRequest req) {
-        if (!config.enableCommands) {
+        if (!getConfig().enableCommands) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Command execution is disabled");
         }
 
@@ -35,8 +32,17 @@ public class CommandActionExecutor extends ActionExecutor {
         String normalizedCmd = req.command.startsWith("/") ? req.command : "/" + req.command;
         String rootCommand = normalizedCmd.split(" ")[0].toLowerCase();
 
-        for (String prefix : config.commandBlacklistPrefixes) {
-            if (rootCommand.equals(prefix.toLowerCase())) {
+        // Strip namespace prefix (e.g. "minecraft:op" -> "op") to prevent bypass
+        String strippedRoot = rootCommand.contains(":")
+            ? rootCommand.substring(rootCommand.indexOf(":") + 1)
+            : rootCommand.substring(1);
+
+        for (String prefix : getConfig().commandBlacklistPrefixes) {
+            String normalizedPrefix = prefix.startsWith("/") ? prefix : "/" + prefix;
+            String strippedPrefix = normalizedPrefix.contains(":")
+                ? normalizedPrefix.substring(normalizedPrefix.indexOf(":") + 1)
+                : normalizedPrefix.substring(1);
+            if (rootCommand.equals(normalizedPrefix.toLowerCase()) || strippedRoot.equals(strippedPrefix.toLowerCase())) {
                 return ActionResponse.error(ErrorCode.COMMAND_DISALLOWED,
                     "Command is blacklisted: " + rootCommand);
             }

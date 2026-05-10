@@ -14,7 +14,7 @@ import java.util.function.Function;
 
 public class McpServer {
     private static final Logger LOGGER = LoggerFactory.getLogger("mc_ai_player");
-    private static final Gson GSON = new Gson();
+    private static final Gson GSON = ActionResponse.GSON;
     private static final String PROTOCOL_VERSION = "2025-03-26";
 
     private final PrintStream mcpOut;
@@ -42,7 +42,7 @@ public class McpServer {
     private List<JsonObject> buildToolDefinitions() {
         List<JsonObject> tools = new ArrayList<>();
 
-        tools.add(buildTool("get_player_position", "Get current player position, rotation, health, and game mode"));
+        tools.add(buildTool("get_player_position", " Get current player position, rotation, health, and game mode"));
         tools.add(buildTool("move_player", "Move player to target coordinates",
             prop("position", obj(
                 prop("x", num("X coordinate")),
@@ -322,6 +322,10 @@ public class McpServer {
     }
 
     private void handleToolsList(JsonElement id, JsonObject params) {
+        if (!initialized) {
+            sendError(id, -32000, "Server not initialized");
+            return;
+        }
         JsonObject result = new JsonObject();
         JsonArray tools = new JsonArray();
         for (JsonObject def : toolDefinitions) {
@@ -332,6 +336,11 @@ public class McpServer {
     }
 
     private void handleToolsCall(JsonElement id, JsonObject params) {
+        if (!initialized) {
+            sendError(id, -32000, "Server not initialized");
+            return;
+        }
+
         String name = getString(params, "name");
         if (name == null) {
             sendError(id, -32602, "Missing tool name");
@@ -349,15 +358,18 @@ public class McpServer {
 
         try {
             ActionResponse response = handler.apply(arguments);
-            String contentText = response.success
-                ? (response.data != null ? GSON.toJson(response.data) : "{}")
-                : (response.error != null ? response.error.message : "Unknown error");
-
             JsonObject result = new JsonObject();
             JsonArray content = new JsonArray();
             JsonObject textContent = new JsonObject();
             textContent.addProperty("type", "text");
-            textContent.addProperty("text", contentText);
+            if (response.success) {
+                textContent.addProperty("text", response.data != null ? GSON.toJson(response.data) : "{}");
+            } else {
+                Map<String, String> errorMap = new LinkedHashMap<>();
+                errorMap.put("error", response.error != null ? response.error.code : "unknown");
+                errorMap.put("message", response.error != null ? response.error.message : "Unknown error");
+                textContent.addProperty("text", GSON.toJson(errorMap));
+            }
             content.add(textContent);
             result.add("content", content);
             result.addProperty("isError", !response.success);
@@ -367,8 +379,11 @@ public class McpServer {
             JsonObject result = new JsonObject();
             JsonArray content = new JsonArray();
             JsonObject textContent = new JsonObject();
+            Map<String, String> errorMap = new LinkedHashMap<>();
+            errorMap.put("error", "internal_error");
+            errorMap.put("message", e.getMessage());
             textContent.addProperty("type", "text");
-            textContent.addProperty("text", "Error: " + e.getMessage());
+            textContent.addProperty("text", GSON.toJson(errorMap));
             content.add(textContent);
             result.add("content", content);
             result.addProperty("isError", true);

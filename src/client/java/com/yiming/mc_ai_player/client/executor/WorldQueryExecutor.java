@@ -2,7 +2,6 @@ package com.yiming.mc_ai_player.client.executor;
 
 import com.yiming.mc_ai_player.api.model.*;
 import com.yiming.mc_ai_player.api.model.BlockPos;
-import com.yiming.mc_ai_player.config.ModConfig;
 import net.minecraft.block.BlockState;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
@@ -18,18 +17,14 @@ import java.util.*;
 
 public class WorldQueryExecutor extends ActionExecutor {
     private static final Logger LOGGER = LoggerFactory.getLogger("mc_ai_player");
-    private final ModConfig config;
 
-    public WorldQueryExecutor(ModConfig config) {
-        this.config = config;
+    public WorldQueryExecutor() {
     }
 
     public ActionResponse handleGetBlock(int x, int y, int z) {
         return runOnServerThread(server -> {
-
             ServerPlayerEntity player = getPlayer(server);
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
-
             ServerWorld world = player.getEntityWorld();
             net.minecraft.util.math.BlockPos pos = new net.minecraft.util.math.BlockPos(x, y, z);
 
@@ -64,12 +59,15 @@ public class WorldQueryExecutor extends ActionExecutor {
         return runOnServerThread(server -> {
             ServerPlayerEntity player = getPlayer(server);
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
-
             ServerWorld world = player.getEntityWorld();
             List<BlockInfo> results = new ArrayList<>();
+            int skipped = 0;
             for (BlockPos bp : positions) {
                 net.minecraft.util.math.BlockPos pos = new net.minecraft.util.math.BlockPos(bp.x, bp.y, bp.z);
-                if (!world.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4)) continue;
+                if (!world.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4)) {
+                    skipped++;
+                    continue;
+                }
 
                 BlockState state = world.getBlockState(pos);
                 Identifier blockId = Registries.BLOCK.getId(state.getBlock());
@@ -80,7 +78,12 @@ public class WorldQueryExecutor extends ActionExecutor {
                     bp, blockId.toString(), properties, world.getRegistryKey().getValue().toString()
                 ));
             }
-            return ActionResponse.ok(results);
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("blocks", results);
+            data.put("count", results.size());
+            data.put("skipped", skipped);
+            return ActionResponse.ok(data);
         });
     }
 
@@ -89,20 +92,21 @@ public class WorldQueryExecutor extends ActionExecutor {
             ServerPlayerEntity player = getPlayer(server);
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
 
-            if (radius < 1 || radius > config.maxQueryRange) {
-                return ActionResponse.error(ErrorCode.OUT_OF_RANGE, "radius must be 1-" + config.maxQueryRange);
+            if (radius < 1 || radius > getConfig().maxQueryRange) {
+                return ActionResponse.error(ErrorCode.OUT_OF_RANGE, "radius must be 1-" + getConfig().maxQueryRange);
             }
 
             ServerWorld world = player.getEntityWorld();
             net.minecraft.util.math.BlockPos center = player.getBlockPos();
             List<BlockInfo> results = new ArrayList<>();
+            int vr = Math.min(getConfig().verticalQueryRange, getConfig().maxQueryRange);
 
             for (int dx = -radius; dx <= radius && results.size() < 5000; dx++) {
                 for (int dz = -radius; dz <= radius && results.size() < 5000; dz++) {
                     net.minecraft.util.math.BlockPos pos = center.add(dx, 0, dz);
                     if (!world.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4)) continue;
 
-                    for (int dy = -5; dy <= 5 && results.size() < 5000; dy++) {
+                    for (int dy = -vr; dy <= vr && results.size() < 5000; dy++) {
                         net.minecraft.util.math.BlockPos checkPos = pos.add(0, dy, 0);
                         BlockState state = world.getBlockState(checkPos);
                         if (state.isAir()) continue;
@@ -128,7 +132,6 @@ public class WorldQueryExecutor extends ActionExecutor {
         return runOnServerThread(server -> {
             ServerPlayerEntity player = getPlayer(server);
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
-
             ServerWorld world = player.getEntityWorld();
             net.minecraft.util.math.BlockPos pos = new net.minecraft.util.math.BlockPos(x, y, z);
             Identifier biomeId = world.getBiome(pos).getKey()
@@ -145,10 +148,7 @@ public class WorldQueryExecutor extends ActionExecutor {
 
     public ActionResponse handleGetTime() {
         return runOnServerThread(server -> {
-            ServerPlayerEntity player = getPlayer(server);
-            if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
-
-            ServerWorld world = player.getEntityWorld();
+            ServerWorld world = server.getWorlds().iterator().next();
             long timeOfDay = world.getTimeOfDay();
             long dayTime = world.getTime();
 
@@ -163,8 +163,8 @@ public class WorldQueryExecutor extends ActionExecutor {
 
     public ActionResponse handleGetEntities(double x, double y, double z, double radius) {
         return runOnServerThread(server -> {
-            if (radius < 1 || radius > config.maxQueryRange) {
-                return ActionResponse.error(ErrorCode.OUT_OF_RANGE, "radius must be 1-" + config.maxQueryRange);
+            if (radius < 1 || radius > getConfig().maxQueryRange) {
+                return ActionResponse.error(ErrorCode.OUT_OF_RANGE, "radius must be 1-" + getConfig().maxQueryRange);
             }
 
             ServerPlayerEntity player = getPlayer(server);
@@ -174,7 +174,8 @@ public class WorldQueryExecutor extends ActionExecutor {
             Box box = new Box(x - radius, y - radius, z - radius, x + radius, y + radius, z + radius);
 
             List<Map<String, Object>> entityList = new ArrayList<>();
-            for (Entity entity : world.getEntitiesByClass(Entity.class, box, e -> true)) {
+            for (Entity entity : world.getEntitiesByClass(Entity.class, box, null)) {
+                if (entity == player) continue;
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("uuid", entity.getUuid().toString());
                 entry.put("type", Registries.ENTITY_TYPE.getId(entity.getType()).toString());

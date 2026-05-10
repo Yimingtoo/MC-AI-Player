@@ -4,7 +4,6 @@ import com.yiming.mc_ai_player.api.model.*;
 import com.yiming.mc_ai_player.api.model.action.FillRegionRequest;
 import com.yiming.mc_ai_player.api.model.action.SetBlockRequest;
 import com.yiming.mc_ai_player.api.model.BlockPos;
-import com.yiming.mc_ai_player.config.ModConfig;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.registry.Registries;
@@ -22,14 +21,12 @@ import java.util.Map;
 
 public class BlockActionExecutor extends ActionExecutor {
     private static final Logger LOGGER = LoggerFactory.getLogger("mc_ai_player");
-    private final ModConfig config;
 
-    public BlockActionExecutor(ModConfig config) {
-        this.config = config;
+    public BlockActionExecutor() {
     }
 
     public ActionResponse handleSetBlock(SetBlockRequest req) {
-        if (!config.enableBlockOperations) {
+        if (!getConfig().enableBlockOperations) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Block operations are disabled");
         }
 
@@ -42,7 +39,7 @@ public class BlockActionExecutor extends ActionExecutor {
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
 
             String dimension = req.dimension != null ? req.dimension : player.getEntityWorld().getRegistryKey().getValue().toString();
-            if (!config.allowedDimensions.contains(dimension)) {
+            if (!getConfig().allowedDimensions.contains(dimension)) {
                 return ActionResponse.error(ErrorCode.DIMENSION_DISALLOWED, "Dimension not allowed: " + dimension);
             }
 
@@ -54,7 +51,7 @@ public class BlockActionExecutor extends ActionExecutor {
                 return ActionResponse.error(ErrorCode.BLOCK_NOT_FOUND, "Unknown block: " + req.blockId);
             }
 
-            if (config.blockBlacklist.contains(blockId.toString())) {
+            if (getConfig().blockBlacklist.contains(blockId.toString())) {
                 return ActionResponse.error(ErrorCode.BLOCK_BLACKLISTED, "Block is blacklisted: " + req.blockId);
             }
 
@@ -82,7 +79,7 @@ public class BlockActionExecutor extends ActionExecutor {
     }
 
     public ActionResponse handleFillRegion(FillRegionRequest req) {
-        if (!config.enableBlockOperations) {
+        if (!getConfig().enableBlockOperations) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Block operations are disabled");
         }
 
@@ -95,7 +92,7 @@ public class BlockActionExecutor extends ActionExecutor {
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
 
             String dimension = req.dimension != null ? req.dimension : player.getEntityWorld().getRegistryKey().getValue().toString();
-            if (!config.allowedDimensions.contains(dimension)) {
+            if (!getConfig().allowedDimensions.contains(dimension)) {
                 return ActionResponse.error(ErrorCode.DIMENSION_DISALLOWED, "Dimension not allowed: " + dimension);
             }
 
@@ -104,7 +101,7 @@ public class BlockActionExecutor extends ActionExecutor {
                 return ActionResponse.error(ErrorCode.BLOCK_NOT_FOUND, "Unknown block: " + req.blockId);
             }
 
-            if (config.blockBlacklist.contains(blockId.toString())) {
+            if (getConfig().blockBlacklist.contains(blockId.toString())) {
                 return ActionResponse.error(ErrorCode.BLOCK_BLACKLISTED, "Block is blacklisted: " + req.blockId);
             }
 
@@ -116,9 +113,9 @@ public class BlockActionExecutor extends ActionExecutor {
             int maxZ = Math.max(req.from.z, req.to.z);
 
             int volume = (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
-            if (volume > config.maxBuildVolume) {
+            if (volume > getConfig().maxBuildVolume) {
                 return ActionResponse.error(ErrorCode.VOLUME_EXCEEDED,
-                    "Volume " + volume + " exceeds max " + config.maxBuildVolume);
+                    "Volume " + volume + " exceeds max " + getConfig().maxBuildVolume);
             }
 
             ServerWorld world = getWorld(server, dimension);
@@ -152,7 +149,7 @@ public class BlockActionExecutor extends ActionExecutor {
     }
 
     public ActionResponse handleReplaceBlocks(FillRegionRequest req, String filterBlockId) {
-        if (!config.enableBlockOperations) {
+        if (!getConfig().enableBlockOperations) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Block operations are disabled");
         }
 
@@ -169,7 +166,7 @@ public class BlockActionExecutor extends ActionExecutor {
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
 
             String dimension = req.dimension != null ? req.dimension : player.getEntityWorld().getRegistryKey().getValue().toString();
-            if (!config.allowedDimensions.contains(dimension)) {
+            if (!getConfig().allowedDimensions.contains(dimension)) {
                 return ActionResponse.error(ErrorCode.DIMENSION_DISALLOWED, "Dimension not allowed: " + dimension);
             }
 
@@ -179,8 +176,13 @@ public class BlockActionExecutor extends ActionExecutor {
                 return ActionResponse.error(ErrorCode.BLOCK_NOT_FOUND, "Unknown block ID");
             }
 
-            if (config.blockBlacklist.contains(targetId.toString())) {
+            if (getConfig().blockBlacklist.contains(targetId.toString())) {
                 return ActionResponse.error(ErrorCode.BLOCK_BLACKLISTED, "Block is blacklisted: " + req.blockId);
+            }
+
+            // Also check filter block against blacklist
+            if (getConfig().blockBlacklist.contains(filterId.toString())) {
+                return ActionResponse.error(ErrorCode.BLOCK_BLACKLISTED, "Filter block is blacklisted: " + filterBlockId);
             }
 
             int minX = Math.min(req.from.x, req.to.x);
@@ -191,12 +193,13 @@ public class BlockActionExecutor extends ActionExecutor {
             int maxZ = Math.max(req.from.z, req.to.z);
 
             int volume = (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
-            if (volume > config.maxBuildVolume) {
+            if (volume > getConfig().maxBuildVolume) {
                 return ActionResponse.error(ErrorCode.VOLUME_EXCEEDED,
-                    "Volume " + volume + " exceeds max " + config.maxBuildVolume);
+                    "Volume " + volume + " exceeds max " + getConfig().maxBuildVolume);
             }
 
             ServerWorld world = getWorld(server, dimension);
+            if (world == null) return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "Invalid dimension: " + dimension);
             Block replacement = Registries.BLOCK.get(targetId);
             BlockState replaceState = replacement.getDefaultState();
             Block filterBlock = Registries.BLOCK.get(filterId);
@@ -235,16 +238,5 @@ public class BlockActionExecutor extends ActionExecutor {
             }
         }
         return state;
-    }
-
-    private static ServerWorld getWorld(MinecraftServer server, String dimensionId) {
-        Identifier id = Identifier.tryParse(dimensionId);
-        if (id == null) return null;
-        for (ServerWorld world : server.getWorlds()) {
-            if (world.getRegistryKey().getValue().equals(id)) {
-                return world;
-            }
-        }
-        return null;
     }
 }

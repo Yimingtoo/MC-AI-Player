@@ -1,15 +1,34 @@
 package com.yiming.mc_ai_player.client.executor;
 
+import com.yiming.mc_ai_player.Mc_ai_player;
 import com.yiming.mc_ai_player.client.bridge.ServerAccessor;
+import com.yiming.mc_ai_player.config.ModConfig;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.util.Identifier;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 public abstract class ActionExecutor {
+
+    protected static ModConfig getConfig() {
+        return Mc_ai_player.CONFIG_MANAGER.get();
+    }
+
+    protected static ServerWorld getWorld(MinecraftServer server, String dimensionId) {
+        Identifier id = Identifier.tryParse(dimensionId);
+        if (id == null) return null;
+        for (ServerWorld world : server.getWorlds()) {
+            if (world.getRegistryKey().getValue().equals(id)) {
+                return world;
+            }
+        }
+        return null;
+    }
 
     protected static <T> T runOnServerThread(Function<MinecraftServer, T> action) {
         MinecraftServer server = ServerAccessor.getServer();
