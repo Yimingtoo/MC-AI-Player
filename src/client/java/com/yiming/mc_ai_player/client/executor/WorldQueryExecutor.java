@@ -4,7 +4,6 @@ import com.yiming.mc_ai_player.api.model.*;
 import com.yiming.mc_ai_player.api.model.BlockPos;
 import com.yiming.mc_ai_player.config.ModConfig;
 import net.minecraft.block.BlockState;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -16,7 +15,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class WorldQueryExecutor extends ActionExecutor {
     private static final Logger LOGGER = LoggerFactory.getLogger("mc_ai_player");
@@ -63,12 +61,27 @@ public class WorldQueryExecutor extends ActionExecutor {
             return ActionResponse.error(ErrorCode.OUT_OF_RANGE, "Max 256 positions per request");
         }
 
-        List<BlockInfo> results = new ArrayList<>();
-        for (BlockPos bp : positions) {
-            BlockInfo info = queryBlock(bp.x, bp.y, bp.z);
-            if (info != null) results.add(info);
-        }
-        return ActionResponse.ok(results);
+        return runOnServerThread(server -> {
+            ServerPlayerEntity player = getPlayer(server);
+            if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
+
+            ServerWorld world = player.getEntityWorld();
+            List<BlockInfo> results = new ArrayList<>();
+            for (BlockPos bp : positions) {
+                net.minecraft.util.math.BlockPos pos = new net.minecraft.util.math.BlockPos(bp.x, bp.y, bp.z);
+                if (!world.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4)) continue;
+
+                BlockState state = world.getBlockState(pos);
+                Identifier blockId = Registries.BLOCK.getId(state.getBlock());
+                Map<String, String> properties = new HashMap<>();
+                state.getEntries().forEach((prop, value) -> properties.put(prop.getName(), value.toString()));
+
+                results.add(new BlockInfo(
+                    bp, blockId.toString(), properties, world.getRegistryKey().getValue().toString()
+                ));
+            }
+            return ActionResponse.ok(results);
+        });
     }
 
     public ActionResponse handleGetPlayerBlocks(int radius) {
@@ -84,13 +97,12 @@ public class WorldQueryExecutor extends ActionExecutor {
             net.minecraft.util.math.BlockPos center = player.getBlockPos();
             List<BlockInfo> results = new ArrayList<>();
 
-            for (int dx = -radius; dx <= radius; dx++) {
-                for (int dz = -radius; dz <= radius; dz++) {
+            for (int dx = -radius; dx <= radius && results.size() < 5000; dx++) {
+                for (int dz = -radius; dz <= radius && results.size() < 5000; dz++) {
                     net.minecraft.util.math.BlockPos pos = center.add(dx, 0, dz);
                     if (!world.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4)) continue;
 
-                    // Get blocks from y-5 to y+5 vertically
-                    for (int dy = -5; dy <= 5; dy++) {
+                    for (int dy = -5; dy <= 5 && results.size() < 5000; dy++) {
                         net.minecraft.util.math.BlockPos checkPos = pos.add(0, dy, 0);
                         BlockState state = world.getBlockState(checkPos);
                         if (state.isAir()) continue;
@@ -178,38 +190,6 @@ public class WorldQueryExecutor extends ActionExecutor {
             data.put("entities", entityList);
             return ActionResponse.ok(data);
         });
-    }
-
-    private BlockInfo queryBlock(int x, int y, int z) {
-        return runOnServerThread(server -> {
-            ServerPlayerEntity player = getPlayer(server);
-            if (player == null) return null;
-
-            ServerWorld world = player.getEntityWorld();
-            net.minecraft.util.math.BlockPos pos = new net.minecraft.util.math.BlockPos(x, y, z);
-            if (!world.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4)) return null;
-
-            BlockState state = world.getBlockState(pos);
-            Identifier blockId = Registries.BLOCK.getId(state.getBlock());
-            Map<String, String> properties = new HashMap<>();
-            state.getEntries().forEach((prop, value) -> properties.put(prop.getName(), value.toString()));
-
-            return new BlockInfo(
-                new BlockPos(x, y, z),
-                blockId.toString(),
-                properties,
-                world.getRegistryKey().getValue().toString()
-            );
-        });
-    }
-
-    private static ServerPlayerEntity getPlayer(MinecraftServer server) {
-        var client = MinecraftClient.getInstance();
-        if (client.player != null) {
-            return server.getPlayerManager().getPlayer(client.player.getUuid());
-        }
-        var players = server.getPlayerManager().getPlayerList();
-        return players.isEmpty() ? null : players.get(0);
     }
 
     private static String formatTickTime(long ticks) {

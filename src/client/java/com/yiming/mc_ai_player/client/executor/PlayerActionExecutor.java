@@ -3,7 +3,6 @@ package com.yiming.mc_ai_player.client.executor;
 import com.yiming.mc_ai_player.api.model.*;
 import com.yiming.mc_ai_player.api.model.action.MovePlayerRequest;
 import com.yiming.mc_ai_player.config.ModConfig;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
@@ -171,12 +170,4 @@ public class PlayerActionExecutor extends ActionExecutor {
         });
     }
 
-    private static ServerPlayerEntity getPlayer(MinecraftServer server) {
-        var client = MinecraftClient.getInstance();
-        if (client.player != null) {
-            return server.getPlayerManager().getPlayer(client.player.getUuid());
-        }
-        var players = server.getPlayerManager().getPlayerList();
-        return players.isEmpty() ? null : players.get(0);
-    }
 }

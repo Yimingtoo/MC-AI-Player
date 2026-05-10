@@ -402,6 +402,10 @@ public class McpServer {
         mcpOut.print(json);
         mcpOut.print("\n");
         mcpOut.flush();
+        if (mcpOut.checkError()) {
+            LOGGER.error("MCP output stream error detected, stopping server");
+            stop();
+        }
     }
 
     // ---- JSON Helper Methods ----

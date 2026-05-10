@@ -1,7 +1,9 @@
 package com.yiming.mc_ai_player.client.executor;
 
 import com.yiming.mc_ai_player.client.bridge.ServerAccessor;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.network.ServerPlayerEntity;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +25,7 @@ public abstract class ActionExecutor {
         try {
             return future.get(10, TimeUnit.SECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
+            future.cancel(true);
             throw new RuntimeException("Operation timed out on server thread", e);
         } catch (Exception e) {
             if (e.getCause() != null) {
@@ -30,5 +33,14 @@ public abstract class ActionExecutor {
             }
             throw new RuntimeException(e);
         }
+    }
+
+    protected static ServerPlayerEntity getPlayer(MinecraftServer server) {
+        var client = MinecraftClient.getInstance();
+        if (client.player != null) {
+            return server.getPlayerManager().getPlayer(client.player.getUuid());
+        }
+        var players = server.getPlayerManager().getPlayerList();
+        return players.isEmpty() ? null : players.get(0);
     }
 }

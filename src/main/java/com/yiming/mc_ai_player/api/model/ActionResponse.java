@@ -20,7 +20,7 @@ public class ActionResponse {
     public static ActionResponse error(ErrorCode code, String message) {
         ActionResponse r = new ActionResponse();
         r.success = false;
-        r.error = new ErrorDetail(code.name().toLowerCase(), message);
+        r.error = new ErrorDetail(code.getCode(), message);
         return r;
     }
 

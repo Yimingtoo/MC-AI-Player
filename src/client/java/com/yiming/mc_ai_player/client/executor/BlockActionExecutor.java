@@ -7,7 +7,6 @@ import com.yiming.mc_ai_player.api.model.BlockPos;
 import com.yiming.mc_ai_player.config.ModConfig;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -236,15 +235,6 @@ public class BlockActionExecutor extends ActionExecutor {
             }
         }
         return state;
-    }
-
-    private static ServerPlayerEntity getPlayer(MinecraftServer server) {
-        var client = MinecraftClient.getInstance();
-        if (client.player != null) {
-            return server.getPlayerManager().getPlayer(client.player.getUuid());
-        }
-        var players = server.getPlayerManager().getPlayerList();
-        return players.isEmpty() ? null : players.get(0);
     }
 
     private static ServerWorld getWorld(MinecraftServer server, String dimensionId) {
