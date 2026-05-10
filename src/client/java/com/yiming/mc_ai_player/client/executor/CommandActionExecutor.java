@@ -1,9 +1,7 @@
 package com.yiming.mc_ai_player.client.executor;
 
-import com.sun.net.httpserver.HttpExchange;
 import com.yiming.mc_ai_player.api.model.*;
 import com.yiming.mc_ai_player.api.model.action.ExecuteCommandRequest;
-import com.yiming.mc_ai_player.client.http.JsonRouter;
 import com.yiming.mc_ai_player.config.ModConfig;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.server.MinecraftServer;
@@ -25,12 +23,11 @@ public class CommandActionExecutor extends ActionExecutor {
         this.config = config;
     }
 
-    public ActionResponse handleExecute(HttpExchange exchange, Map<String, String> params) {
+    public ActionResponse handleExecute(ExecuteCommandRequest req) {
         if (!config.enableCommands) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Command execution is disabled");
         }
 
-        ExecuteCommandRequest req = JsonRouter.parseBody(exchange, ExecuteCommandRequest.class);
         if (req == null || req.command == null || req.command.isEmpty()) {
             return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "command is required");
         }

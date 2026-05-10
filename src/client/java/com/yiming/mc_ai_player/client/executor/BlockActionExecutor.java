@@ -1,11 +1,9 @@
 package com.yiming.mc_ai_player.client.executor;
 
-import com.sun.net.httpserver.HttpExchange;
 import com.yiming.mc_ai_player.api.model.*;
 import com.yiming.mc_ai_player.api.model.action.FillRegionRequest;
 import com.yiming.mc_ai_player.api.model.action.SetBlockRequest;
 import com.yiming.mc_ai_player.api.model.BlockPos;
-import com.yiming.mc_ai_player.client.http.JsonRouter;
 import com.yiming.mc_ai_player.config.ModConfig;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -31,12 +29,11 @@ public class BlockActionExecutor extends ActionExecutor {
         this.config = config;
     }
 
-    public ActionResponse handleSetBlock(HttpExchange exchange, Map<String, String> params) {
+    public ActionResponse handleSetBlock(SetBlockRequest req) {
         if (!config.enableBlockOperations) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Block operations are disabled");
         }
 
-        SetBlockRequest req = JsonRouter.parseBody(exchange, SetBlockRequest.class);
         if (req == null || req.position == null || req.blockId == null) {
             return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "position and blockId are required");
         }
@@ -85,12 +82,11 @@ public class BlockActionExecutor extends ActionExecutor {
         });
     }
 
-    public ActionResponse handleFillRegion(HttpExchange exchange, Map<String, String> params) {
+    public ActionResponse handleFillRegion(FillRegionRequest req) {
         if (!config.enableBlockOperations) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Block operations are disabled");
         }
 
-        FillRegionRequest req = JsonRouter.parseBody(exchange, FillRegionRequest.class);
         if (req == null || req.from == null || req.to == null || req.blockId == null) {
             return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "from, to, and blockId are required");
         }
@@ -156,30 +152,15 @@ public class BlockActionExecutor extends ActionExecutor {
         });
     }
 
-    public ActionResponse handleReplaceBlocks(HttpExchange exchange, Map<String, String> params) {
+    public ActionResponse handleReplaceBlocks(FillRegionRequest req, String filterBlockId) {
         if (!config.enableBlockOperations) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Block operations are disabled");
         }
 
-        FillRegionRequest req = JsonRouter.parseBody(exchange, FillRegionRequest.class);
         if (req == null || req.from == null || req.to == null || req.blockId == null) {
             return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "from, to, and blockId are required");
         }
 
-        // The filterBlockId will be passed in blockState as a special key, or we extend FillRegionRequest
-        // For simplicity, use blockId as the replacement and expect a "filter" field
-        // Actually let's just reuse: the request body can have additional filter field
-        // We'll parse it manually
-        Map<String, Object> body;
-        try {
-            var gson = new com.google.gson.Gson();
-            var reader = new java.io.InputStreamReader(exchange.getRequestBody(), java.nio.charset.StandardCharsets.UTF_8);
-            body = gson.fromJson(reader, Map.class);
-        } catch (Exception e) {
-            return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "Invalid request body");
-        }
-
-        String filterBlockId = body != null ? (String) body.get("filterBlockId") : null;
         if (filterBlockId == null) {
             return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "filterBlockId is required");
         }

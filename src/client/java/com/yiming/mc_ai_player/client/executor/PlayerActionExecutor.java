@@ -1,9 +1,7 @@
 package com.yiming.mc_ai_player.client.executor;
 
-import com.sun.net.httpserver.HttpExchange;
 import com.yiming.mc_ai_player.api.model.*;
 import com.yiming.mc_ai_player.api.model.action.MovePlayerRequest;
-import com.yiming.mc_ai_player.client.http.JsonRouter;
 import com.yiming.mc_ai_player.config.ModConfig;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.player.PlayerInventory;
@@ -26,7 +24,7 @@ public class PlayerActionExecutor extends ActionExecutor {
         this.config = config;
     }
 
-    public ActionResponse handleGetPosition(HttpExchange exchange, Map<String, String> params) {
+    public ActionResponse handleGetPosition() {
         return runOnServerThread(server -> {
             ServerPlayerEntity player = getPlayer(server);
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
@@ -42,12 +40,11 @@ public class PlayerActionExecutor extends ActionExecutor {
         });
     }
 
-    public ActionResponse handleMove(HttpExchange exchange, Map<String, String> params) {
+    public ActionResponse handleMove(MovePlayerRequest req) {
         if (!config.enablePlayerMovement) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Player movement is disabled");
         }
 
-        MovePlayerRequest req = JsonRouter.parseBody(exchange, MovePlayerRequest.class);
         if (req == null || req.position == null) {
             return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "position is required");
         }
@@ -99,35 +96,17 @@ public class PlayerActionExecutor extends ActionExecutor {
         });
     }
 
-    public ActionResponse handleLook(HttpExchange exchange, Map<String, String> params) {
+    public ActionResponse handleLook(float yaw, float pitch) {
         if (!config.enablePlayerMovement) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Player movement is disabled");
         }
 
-        Map<String, Object> body;
-        try {
-            var gson = new com.google.gson.Gson();
-            var reader = new java.io.InputStreamReader(exchange.getRequestBody(), java.nio.charset.StandardCharsets.UTF_8);
-            body = gson.fromJson(reader, Map.class);
-        } catch (Exception e) {
-            return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "Invalid request body");
-        }
-
-        if (body == null || (!body.containsKey("yaw") && !body.containsKey("pitch"))) {
-            return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "yaw and/or pitch required");
-        }
-
-        float yaw = body.containsKey("yaw") ? ((Number) body.get("yaw")).floatValue() : 0;
-        float pitch = body.containsKey("pitch") ? ((Number) body.get("pitch")).floatValue() : 0;
-
-        float finalYaw = yaw;
-        float finalPitch = pitch;
         return runOnServerThread(server -> {
             ServerPlayerEntity player = getPlayer(server);
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
 
-            player.setYaw(finalYaw);
-            player.setPitch(finalPitch);
+            player.setYaw(yaw);
+            player.setPitch(pitch);
 
             PlayerInfo info = new PlayerInfo(
                 player.getX(), player.getY(), player.getZ(),
@@ -140,21 +119,7 @@ public class PlayerActionExecutor extends ActionExecutor {
         });
     }
 
-    public ActionResponse handleSendChat(HttpExchange exchange, Map<String, String> params) {
-        Map<String, Object> body;
-        try {
-            var gson = new com.google.gson.Gson();
-            var reader = new java.io.InputStreamReader(exchange.getRequestBody(), java.nio.charset.StandardCharsets.UTF_8);
-            body = gson.fromJson(reader, Map.class);
-        } catch (Exception e) {
-            return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "Invalid request body");
-        }
-
-        if (body == null || !body.containsKey("message")) {
-            return ActionResponse.error(ErrorCode.INVALID_PARAMETERS, "message is required");
-        }
-
-        String message = (String) body.get("message");
+    public ActionResponse handleSendChat(String message) {
         return runOnServerThread(server -> {
             ServerPlayerEntity player = getPlayer(server);
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");
@@ -164,7 +129,7 @@ public class PlayerActionExecutor extends ActionExecutor {
         });
     }
 
-    public ActionResponse handleJump(HttpExchange exchange, Map<String, String> params) {
+    public ActionResponse handleJump() {
         if (!config.enablePlayerMovement) {
             return ActionResponse.error(ErrorCode.OPERATION_DISABLED, "Player movement is disabled");
         }
@@ -180,7 +145,7 @@ public class PlayerActionExecutor extends ActionExecutor {
         });
     }
 
-    public ActionResponse handleGetInventory(HttpExchange exchange, Map<String, String> params) {
+    public ActionResponse handleGetInventory() {
         return runOnServerThread(server -> {
             ServerPlayerEntity player = getPlayer(server);
             if (player == null) return ActionResponse.error(ErrorCode.PLAYER_NOT_FOUND, "No player found");

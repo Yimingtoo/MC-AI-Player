@@ -3,8 +3,6 @@ package com.yiming.mc_ai_player.config;
 import java.util.List;
 
 public class ModConfig {
-    public int httpPort = 8123;
-    public int maxRequestsPerSecond = 20;
     public int maxBuildVolume = 32768;
     public int maxQueryRange = 64;
     public boolean enableBlockOperations = true;
