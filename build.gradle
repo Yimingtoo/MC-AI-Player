@@ -86,6 +86,45 @@ jar {
     }
 }
 
+task generateMcpLaunchConfig {
+    dependsOn 'classes'
+    group 'fabric'
+    description '生成 run/mcp-launch.json（供 MCP Host 启动 Minecraft 子进程使用）'
+
+    doLast {
+        Set<File> cp = new LinkedHashSet<>()
+
+        // 客户端运行时 classpath（包含编译产物 + 所有依赖 + Minecraft 库）
+        cp.addAll(sourceSets.client.runtimeClasspath)
+
+        def loomCacheDir = file('.gradle/loom-cache')
+        def outputFile = file('run/mcp-launch.json')
+
+        // 构建 JSON
+        def json = [
+            mainClass: 'net.fabricmc.loader.launch.knot.KnotClient',
+            classpath: cp.collect { it.absolutePath }.join(File.pathSeparator),
+            jvmArgs: [
+                '-Dfabric.development=true',
+                '-Dlog4j.configurationFile=' + loomCacheDir.absolutePath + '/log4j.xml',
+                '-Dfabric.remapClasspathFile=' + loomCacheDir.absolutePath + '/remapClasspath.txt'
+            ],
+            programArgs: [
+                '--assetIndex', '1.21.11-29',
+                '--assetsDir', gradle.gradleUserHomeDir.absolutePath + '/caches/fabric-loom/assets',
+                '--gameDir', file('run').absolutePath
+            ],
+            gameDir: file('run').absolutePath
+        ]
+
+        outputFile.parentFile.mkdirs()
+        outputFile.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(json))
+
+        println "\n[generateMcpLaunchConfig] 已生成: ${outputFile}"
+        println "[generateMcpLaunchConfig] Classpath 条目数: ${cp.size()}"
+    }
+}
+
 // configure the maven publication
 publishing {
     publications {

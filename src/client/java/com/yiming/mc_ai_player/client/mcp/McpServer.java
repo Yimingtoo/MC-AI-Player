@@ -7,6 +7,7 @@ import com.yiming.mc_ai_player.client.executor.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import net.fabricmc.loader.api.FabricLoader;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -126,7 +127,9 @@ public class McpServer {
             prop("filterBlockId", str("Block ID to replace")),
             opt("dimension", str("Dimension (e.g. minecraft:overworld)"))
         ));
-        tools.add(buildTool("execute_command", "Execute a Minecraft command",
+        tools.add(buildTool("execute_command",
+            "Execute a Minecraft command. Server version: Minecraft 1.21.11 (uses data component syntax). " +
+            "For item data (e.g. /give): use components like [enchantments={levels:{\"minecraft:protection\":4}}].",
             prop("command", str("Command to execute")),
             opt("asPlayer", bool("Execute as player (true) or console (false)"), true)
         ));
@@ -316,6 +319,11 @@ public class McpServer {
         JsonObject serverInfo = new JsonObject();
         serverInfo.addProperty("name", "mc-ai-player");
         serverInfo.addProperty("version", "1.0");
+        String gameVersion = FabricLoader.getInstance()
+                .getModContainer("minecraft")
+                .map(c -> c.getMetadata().getVersion().getFriendlyString())
+                .orElse("unknown");
+        serverInfo.addProperty("gameVersion", gameVersion);
         result.add("serverInfo", serverInfo);
 
         sendResult(id, result);

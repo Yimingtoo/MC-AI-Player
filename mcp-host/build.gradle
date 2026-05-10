@@ -1,0 +1,56 @@
+plugins {
+    id 'application'
+    id 'java'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'org.jline:jline:3.27.1'
+}
+
+application {
+    mainClass = 'com.yiming.mcp_host.McpHostApplication'
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': application.mainClass
+    }
+}
+
+run {
+    // 从环境变量读取 API Key，避免硬编码
+    // 也可以在 IDEA Gradle 配置的 Environment variables 中设置
+    if (System.getenv('DEEPSEEK_API_KEY') != null) {
+        environment 'DEEPSEEK_API_KEY', System.getenv('DEEPSEEK_API_KEY')
+    }
+
+    // 显式设置工作目录为根项目目录（run/mcp-launch.json 在根项目下）
+    workingDir = project.rootProject.projectDir
+
+    // 捕获应用的标准错误输出
+    dependsOn 'classes'
+    doFirst {
+        println "[Gradle] 启动 MCP Host (mainClass: ${application.mainClass})"
+        println "[Gradle] DEEPSEEK_API_KEY 已设置: ${System.getenv('DEEPSEEK_API_KEY') != null}"
+        println "[Gradle] 项目目录: ${project.projectDir}"
+        println "[Gradle] 工作目录: ${workingDir.getAbsolutePath()}"
+    }
+}
+
+tasks.withType(JavaExec).configureEach {
+    // 允许交互式输入
+    standardInput = System.in
+    ignoreExitValue = false
+    jvmArgs '-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+}
