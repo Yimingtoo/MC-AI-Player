@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class McpClient implements AutoCloseable {
+public class McpClient implements AutoCloseable, McpToolExecutor {
 
     private final String launchConfigPath;
     private final boolean noLaunch;

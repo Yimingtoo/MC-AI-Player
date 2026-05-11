@@ -2,7 +2,8 @@ package com.yiming.mcp_host.llm;
 
 import com.google.gson.*;
 import com.yiming.mcp_host.config.HostConfig;
-import com.yiming.mcp_host.mcp.McpClient;
+import com.yiming.mcp_host.mcp.McpToolExecutor;
+import com.yiming.mcp_host.memory.KnowledgeStore;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,24 +13,31 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
 public class LLMBridge {
 
     private final HostConfig config;
-    private final McpClient mcpClient;
+    private final McpToolExecutor mcpClient;
     private final JsonArray toolsDefinition;
     private final HttpClient httpClient;
+    private final KnowledgeStore knowledgeStore;
     private final Gson gson = new Gson();
 
     private final List<JsonObject> conversation = new ArrayList<>();
     private static final int MAX_CONVERSATION_SIZE = 100;
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+            .withZone(ZoneId.systemDefault());
 
-    public LLMBridge(HostConfig config, McpClient mcpClient, JsonArray toolsDefinition, String gameVersion) {
+    public LLMBridge(HostConfig config, McpToolExecutor mcpClient, JsonArray toolsDefinition, String gameVersion) {
         this.config = config;
         this.mcpClient = mcpClient;
         this.toolsDefinition = ToolConverter.toOpenAITools(toolsDefinition);
+        this.knowledgeStore = new KnowledgeStore();
         addInternalTools();
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
@@ -38,12 +46,20 @@ public class LLMBridge {
         // 初始化系统消息，设定 AI 助手的角色和行为规范
         JsonObject systemMsg = new JsonObject();
         systemMsg.addProperty("role", "system");
-        systemMsg.addProperty("content",
-                "你是 MCP-Host AI 助手。你可以使用提供的工具来帮助用户完成任务。"
+        String systemContent = "你是 MCP-Host AI 助手。你可以使用提供的工具来帮助用户完成任务。"
                 + "请根据用户需求合理调用工具，将工具执行结果整理后回复用户。"
                 + "\n\n当前 Minecraft 版本: " + gameVersion
                 + "（使用数据组件语法，例如附魔用 [enchantments={levels:{\"minecraft:protection\":4}}]）"
-                + "\n\n如果你发现某个工具调用返回了错误，并且怀疑是工具本身的问题（而非参数错误），请使用 _report_error 工具向开发者反馈错误信息，包括出错的工具名称、参数、错误信息和你对错误原因的分析。");
+                + "\n\n如果你发现某个工具调用返回了错误，并且怀疑是工具本身的问题（而非参数错误），请使用 _report_error 工具向开发者反馈错误信息，包括出错的工具名称、参数、错误信息和你对错误原因的分析。"
+                + "\n\n如果你发现某个工具的高效用法、参数技巧或最佳实践（例如：某个参数值效果更好、调用顺序更优化），请使用 _save_tip 工具记录这些优化经验。这些经验会在后续对话中自动加载，帮助你自己和其他人更高效地使用工具。";
+
+        // 注入跨对话经验知识
+        String knowledge = knowledgeStore.getSummary();
+        if (!knowledge.isEmpty()) {
+            systemContent += "\n\n" + knowledge;
+        }
+
+        systemMsg.addProperty("content", systemContent);
         conversation.add(systemMsg);
     }
 
@@ -108,6 +124,8 @@ public class LLMBridge {
                 showToolCall(functionName, arguments);
 
                 JsonObject toolResult;
+                boolean hadError = false;
+                String errorMessage = null;
                 if (functionName.startsWith("_")) {
                     toolResult = handleLocalToolCall(functionName, arguments);
                 } else {
@@ -117,6 +135,15 @@ public class LLMBridge {
                         toolResult = new JsonObject();
                         toolResult.addProperty("error", e.getMessage());
                     }
+                }
+
+                // 自动记录工具调用错误
+                if (toolResult.has("error") && !toolResult.get("error").isJsonNull()) {
+                    hadError = true;
+                    errorMessage = toolResult.get("error").getAsString();
+                    String summary = "调用 " + functionName + " 时出错: " + errorMessage;
+                    summary += "。参数: " + arguments.keySet();
+                    knowledgeStore.record(functionName, summary, argumentsStr, errorMessage, "error");
                 }
 
                 String resultText = toolResult.toString();
@@ -205,6 +232,36 @@ public class LLMBridge {
         function.add("parameters", params);
         tool.add("function", function);
         this.toolsDefinition.add(tool);
+
+        // 添加 _save_tip 工具定义，供 LLM 主动记录优化技巧
+        JsonObject tipTool = new JsonObject();
+        tipTool.addProperty("type", "function");
+        JsonObject tipFunc = new JsonObject();
+        tipFunc.addProperty("name", "_save_tip");
+        tipFunc.addProperty("description", "当你发现某个工具的高效用法、参数技巧或最佳实践时，使用此工具保存优化经验，方便未来参考。例如：发现某个参数组合效果更好、调用顺序更优、或者某个值的特殊用法。");
+        JsonObject tipParams = new JsonObject();
+        tipParams.addProperty("type", "object");
+        JsonObject tipProps = new JsonObject();
+        JsonObject tipToolName = new JsonObject();
+        tipToolName.addProperty("type", "string");
+        tipToolName.addProperty("description", "适用于哪个工具");
+        tipProps.add("tool_name", tipToolName);
+        JsonObject tipContent = new JsonObject();
+        tipContent.addProperty("type", "string");
+        tipContent.addProperty("description", "优化技巧的具体内容，包括参数值、调用方式、使用场景等");
+        tipProps.add("tip", tipContent);
+        JsonObject tipContext = new JsonObject();
+        tipContext.addProperty("type", "string");
+        tipContext.addProperty("description", "何时使用此技巧（条件/场景描述）");
+        tipProps.add("context", tipContext);
+        tipParams.add("properties", tipProps);
+        JsonArray tipRequired = new JsonArray();
+        tipRequired.add("tool_name");
+        tipRequired.add("tip");
+        tipParams.add("required", tipRequired);
+        tipFunc.add("parameters", tipParams);
+        tipTool.add("function", tipFunc);
+        this.toolsDefinition.add(tipTool);
     }
 
     private JsonObject handleLocalToolCall(String name, JsonObject arguments) {
@@ -228,7 +285,7 @@ public class LLMBridge {
                 report.addProperty("analysis", analysis);
 
                 try {
-                    String reportsDir = "run/tool-errors";
+                    String reportsDir = "run/ai-player/tool-errors";
                     new java.io.File(reportsDir).mkdirs();
                     String filename = reportsDir + "/error_" + System.currentTimeMillis() + ".json";
                     Files.writeString(Path.of(filename), report.toString());
@@ -239,8 +296,25 @@ public class LLMBridge {
 
                 JsonObject result = new JsonObject();
                 result.addProperty("success", true);
-                result.addProperty("message", "错误报告已保存到本地");
+                result.addProperty("message", "错误报告已保存到本地（工具错误已由系统自动记录到知识库）");
                 return result;
+            }
+            case "_save_tip" -> {
+                if (!arguments.has("tool_name") || !arguments.has("tip")) {
+                    JsonObject r = new JsonObject();
+                    r.addProperty("error", "_save_tip 缺少必填参数 (tool_name, tip)");
+                    return r;
+                }
+                String toolName = arguments.get("tool_name").getAsString();
+                String tip = arguments.get("tip").getAsString();
+                String context = arguments.has("context") ? arguments.get("context").getAsString() : "";
+                String detail = context.isEmpty() ? tip : tip + "（适用场景: " + context + "）";
+                knowledgeStore.saveTip(toolName, detail, "{}", tip);
+                System.err.println("\n[知识库] 保存优化技巧: " + toolName + " → " + tip);
+                JsonObject r = new JsonObject();
+                r.addProperty("success", true);
+                r.addProperty("message", "优化技巧已保存到知识库，下次启动时自动加载");
+                return r;
             }
             default -> {
                 JsonObject result = new JsonObject();

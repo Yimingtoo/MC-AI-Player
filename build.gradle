@@ -86,10 +86,11 @@ jar {
     }
 }
 
+// 仅旧版 stdio 模式需要此任务；SSE 模式无需子进程启动配置
 task generateMcpLaunchConfig {
     dependsOn 'classes'
     group 'fabric'
-    description '生成 run/mcp-launch.json（供 MCP Host 启动 Minecraft 子进程使用）'
+    description '[旧版] 生成 run/ai-player/mcp-launch.json（SSE 模式无需此任务）'
 
     doLast {
         Set<File> cp = new LinkedHashSet<>()
@@ -98,7 +99,7 @@ task generateMcpLaunchConfig {
         cp.addAll(sourceSets.client.runtimeClasspath)
 
         def loomCacheDir = file('.gradle/loom-cache')
-        def outputFile = file('run/mcp-launch.json')
+        def outputFile = file('run/ai-player/mcp-launch.json')
 
         // 构建 JSON
         def json = [

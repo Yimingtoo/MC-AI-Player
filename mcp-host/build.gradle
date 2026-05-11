@@ -35,7 +35,7 @@ run {
         environment 'DEEPSEEK_API_KEY', System.getenv('DEEPSEEK_API_KEY')
     }
 
-    // 显式设置工作目录为根项目目录（run/mcp-launch.json 在根项目下）
+    // 旧版 stdio 模式需要此路径（run/mcp-launch.json）；SSE 模式可移除
     workingDir = project.rootProject.projectDir
 
     // 捕获应用的标准错误输出

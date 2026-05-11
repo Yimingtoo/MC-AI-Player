@@ -13,7 +13,7 @@ import java.nio.file.Path;
 public class ModConfigManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("mc_ai_player");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("mc_ai_player.json");
+    private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("ai-player").resolve("mc_ai_player.json");
 
     private ModConfig config;
 

@@ -1,7 +1,7 @@
 package com.yiming.mcp_host.cli;
 
 import com.yiming.mcp_host.llm.LLMBridge;
-import com.yiming.mcp_host.mcp.McpClient;
+import com.yiming.mcp_host.mcp.McpToolExecutor;
 import org.jline.reader.EndOfFileException;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
@@ -15,16 +15,15 @@ public class Repl {
     private static final String PROMPT = "mcai> ";
 
     private final LLMBridge llmBridge;
-    private final McpClient mcpClient;
+    private final McpToolExecutor mcpClient;
     private final boolean useScanner;
     private final LineReader reader;
     private final Scanner scanner;
 
-    public Repl(LLMBridge llmBridge, McpClient mcpClient) {
+    public Repl(LLMBridge llmBridge, McpToolExecutor mcpClient) {
         this.llmBridge = llmBridge;
         this.mcpClient = mcpClient;
 
-        // 有真实终端时用 JLine，否则用 Scanner（如 IDEA 控制台）
         boolean useJLine = System.console() != null;
         LineReader r = null;
         if (useJLine) {

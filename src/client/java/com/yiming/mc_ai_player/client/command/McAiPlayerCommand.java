@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.yiming.mc_ai_player.Mc_ai_player;
 import com.yiming.mc_ai_player.client.Mc_ai_playerClient;
 import com.yiming.mc_ai_player.client.mcp.McpServer;
+import com.yiming.mc_ai_player.client.mcp.McpSseServer;
 import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
@@ -18,7 +19,11 @@ public class McAiPlayerCommand {
             .then(literal("status")
                 .executes(ctx -> {
                     McpServer mcp = Mc_ai_playerClient.getMcpServer();
-                    if (mcp != null && mcp.isRunning()) {
+                    McpSseServer sse = Mc_ai_playerClient.getMcpSseServer();
+                    if (sse != null && sse.isRunning()) {
+                        ctx.getSource().sendFeedback(() ->
+                            Text.literal("§a[MC_AI] MCP server is running (SSE, port " + sse.getPort() + ")"), false);
+                    } else if (mcp != null && mcp.isRunning()) {
                         ctx.getSource().sendFeedback(() ->
                             Text.literal("§a[MC_AI] MCP server is running (stdio)"), false);
                     } else {
