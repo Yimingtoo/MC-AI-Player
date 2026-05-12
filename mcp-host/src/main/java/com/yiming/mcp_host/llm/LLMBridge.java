@@ -18,6 +18,9 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public class LLMBridge {
 
@@ -32,6 +35,9 @@ public class LLMBridge {
     private static final int MAX_CONVERSATION_SIZE = 100;
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
             .withZone(ZoneId.systemDefault());
+
+    private volatile boolean cancelled;
+    private volatile CompletableFuture<HttpResponse<String>> currentHttpFuture;
 
     public LLMBridge(HostConfig config, McpToolExecutor mcpClient, JsonArray toolsDefinition, String gameVersion) {
         this.config = config;
@@ -64,9 +70,27 @@ public class LLMBridge {
     }
 
     /**
+     * 中断当前正在执行的任务。
+     */
+    public void cancel() {
+        cancelled = true;
+        CompletableFuture<HttpResponse<String>> future = currentHttpFuture;
+        if (future != null) {
+            future.cancel(true);
+        }
+    }
+
+    public boolean isCancelled() {
+        return cancelled;
+    }
+
+    /**
      * 处理用户输入，执行工具调用循环，返回最终文本回答。
      */
     public String processUserInput(String userMessage) throws Exception {
+        cancelled = false;
+        int savedConversationSize = conversation.size();
+        try {
         JsonObject userMsg = new JsonObject();
         userMsg.addProperty("role", "user");
         userMsg.addProperty("content", userMessage);
@@ -76,6 +100,9 @@ public class LLMBridge {
         StringBuilder accumulatedContent = new StringBuilder();
 
         for (int round = 0; round < config.getMaxToolRoundtrips(); round++) {
+            if (cancelled) {
+                throw new TaskCancelledException("任务已被用户中断");
+            }
             JsonObject response = callDeepseek();
 
             JsonObject message = response.getAsJsonObject("message");
@@ -102,6 +129,9 @@ public class LLMBridge {
 
             // 逐个执行工具调用
             for (JsonElement tcElem : toolCalls) {
+                if (cancelled) {
+                    throw new TaskCancelledException("任务已被用户中断");
+                }
                 JsonObject tc = tcElem.getAsJsonObject();
                 String toolCallId = tc.get("id").getAsString();
                 String functionName = tc.getAsJsonObject("function").get("name").getAsString();
@@ -157,6 +187,13 @@ public class LLMBridge {
         }
 
         return accumulatedContent.toString().strip();
+        } catch (TaskCancelledException e) {
+            // 回滚本轮添加的对话历史
+            while (conversation.size() > savedConversationSize) {
+                conversation.remove(conversation.size() - 1);
+            }
+            throw e;
+        }
     }
 
     private JsonObject callDeepseek() throws Exception {
@@ -174,7 +211,32 @@ public class LLMBridge {
                 .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
                 .build();
 
-        HttpResponse<String> httpResponse = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> httpResponse;
+        try {
+            currentHttpFuture = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+            // 轮询等待 HTTP 响应，每秒检查 cancelled 标志
+            while (true) {
+                try {
+                    httpResponse = currentHttpFuture.get(1, TimeUnit.SECONDS);
+                    break;
+                } catch (java.util.concurrent.TimeoutException e) {
+                    if (cancelled) {
+                        currentHttpFuture.cancel(true);
+                        throw new TaskCancelledException("任务已被用户中断");
+                    }
+                }
+            }
+        } catch (CancellationException e) {
+            throw new TaskCancelledException("任务已被用户中断");
+        } catch (InterruptedException e) {
+            if (cancelled) {
+                throw new TaskCancelledException("任务已被用户中断");
+            }
+            Thread.currentThread().interrupt();
+            throw e;
+        } finally {
+            currentHttpFuture = null;
+        }
 
         if (httpResponse.statusCode() != 200) {
             throw new RuntimeException("API 请求失败 [" + httpResponse.statusCode() + "]: " + httpResponse.body());

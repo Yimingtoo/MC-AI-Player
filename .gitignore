@@ -12,6 +12,8 @@ out/
 
 # Minecraft dev
 run/
+fabricloader.log
+fabric-server-launcher.properties
 
 # OS
 .DS_Store
@@ -22,6 +24,12 @@ Thumbs.db
 
 # Temp
 temp/
+
+# Logs
+logs/
+
+# Docs (local notes)
+docs/
 
 # Claude
 .claude/

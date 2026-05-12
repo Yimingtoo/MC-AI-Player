@@ -1,6 +1,7 @@
 package com.yiming.mcp_host.cli;
 
 import com.yiming.mcp_host.llm.LLMBridge;
+import com.yiming.mcp_host.llm.TaskCancelledException;
 import com.yiming.mcp_host.mcp.McpToolExecutor;
 import org.jline.reader.EndOfFileException;
 import org.jline.reader.LineReader;
@@ -19,6 +20,8 @@ public class Repl {
     private final boolean useScanner;
     private final LineReader reader;
     private final Scanner scanner;
+
+    private volatile Thread workerThread;
 
     public Repl(LLMBridge llmBridge, McpToolExecutor mcpClient) {
         this.llmBridge = llmBridge;
@@ -42,6 +45,7 @@ public class Repl {
 
     public void run() {
         System.out.println("MCP-Host REPL — 输入 .help 查看命令, .exit 退出");
+        System.out.println("提示: .cancel 可中断正在执行的任务");
 
         while (mcpClient.isRunning()) {
             String line;
@@ -55,6 +59,14 @@ public class Repl {
                     line = reader.readLine(PROMPT);
                 }
             } catch (UserInterruptException e) {
+                // Ctrl+C 优先中断后台任务
+                Thread w = workerThread;
+                if (w != null && w.isAlive()) {
+                    llmBridge.cancel();
+                    w.interrupt();
+                    System.out.println("\n任务已中断");
+                }
+                // 否则忽略（JLine 已清空输入行）
                 continue;
             } catch (EndOfFileException e) {
                 break;
@@ -74,6 +86,16 @@ public class Repl {
         String[] parts = cmd.split("\\s+", 2);
         switch (parts[0]) {
             case ".help" -> printHelp();
+            case ".cancel" -> {
+                Thread w = workerThread;
+                if (w != null && w.isAlive()) {
+                    llmBridge.cancel();
+                    w.interrupt();
+                    System.out.println("任务已中断");
+                } else {
+                    System.out.println("当前没有正在执行的任务");
+                }
+            }
             case ".exit" -> {
                 System.out.println("再见！");
                 mcpClient.stop();
@@ -99,17 +121,24 @@ public class Repl {
     }
 
     private void handleUserInput(String input) {
-        try {
-            String response = llmBridge.processUserInput(input);
-            System.out.println("\n" + response);
-        } catch (Exception e) {
-            System.err.println("错误: " + e.getMessage());
-        }
+        // 后台执行任务，主线程立即返回 REPL 循环
+        workerThread = new Thread(() -> {
+            try {
+                String response = llmBridge.processUserInput(input);
+                System.out.println("\n" + response);
+            } catch (TaskCancelledException e) {
+                System.out.println("\n任务已中断");
+            } catch (Exception e) {
+                System.err.println("\n错误: " + e.getMessage());
+            }
+        }, "llm-worker");
+        workerThread.start();
     }
 
     private void printHelp() {
         System.out.println("""
                 .help             显示此帮助
+                .cancel           中断当前正在执行的任务
                 .exit             退出程序
                 .tools            列出可用工具
                 .model            显示当前模型
