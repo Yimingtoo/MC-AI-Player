@@ -174,7 +174,7 @@ public class WorldQueryExecutor extends ActionExecutor {
             Box box = new Box(x - radius, y - radius, z - radius, x + radius, y + radius, z + radius);
 
             List<Map<String, Object>> entityList = new ArrayList<>();
-            for (Entity entity : world.getEntitiesByClass(Entity.class, box, null)) {
+            for (Entity entity : world.getEntitiesByClass(Entity.class, box, entity -> true)) {
                 if (entity == player) continue;
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("uuid", entity.getUuid().toString());
