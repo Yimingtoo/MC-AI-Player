@@ -8,4 +8,4 @@ pluginManagement {
     }
 }
 
-include 'mcp-host'
+include 'mcp-host-full'

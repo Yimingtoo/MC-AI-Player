@@ -2,6 +2,7 @@ package com.yiming.mcp_host;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.yiming.mcp_host.agent.Agent;
 import com.yiming.mcp_host.cli.Repl;
 import com.yiming.mcp_host.config.HostConfig;
 import com.yiming.mcp_host.llm.LLMBridge;
@@ -12,11 +13,9 @@ import java.nio.charset.StandardCharsets;
 public class McpHostApplication {
 
     public static void main(String[] args) {
-        // 强制 UTF-8 输出
         System.setOut(new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8));
         System.setErr(new java.io.PrintStream(System.err, true, StandardCharsets.UTF_8));
 
-        // 解析 CLI 参数
         String apiKey = null;
         String baseUrl = null;
         String model = null;
@@ -78,11 +77,12 @@ public class McpHostApplication {
             }
             System.out.println("[MCP-Host] 握手完成, Minecraft 版本: " + gameVersion);
 
-            JsonArray tools = mcpClient.listTools();
-            System.out.println("[MCP-Host] 发现 " + tools.size() + " 个工具");
+            JsonArray rawTools = mcpClient.listTools();
+            System.out.println("[MCP-Host] 发现 " + rawTools.size() + " 个工具");
 
-            LLMBridge llmBridge = new LLMBridge(config, mcpClient, tools, gameVersion);
-            new Repl(llmBridge, mcpClient).run();
+            LLMBridge llmBridge = new LLMBridge(config);
+            Agent agent = new Agent(config, llmBridge, mcpClient, rawTools, gameVersion);
+            new Repl(agent, mcpClient).run();
         } catch (Exception e) {
             System.err.println("[MCP-Host] 启动失败: " + e.getMessage());
             e.printStackTrace(System.err);
@@ -90,9 +90,6 @@ public class McpHostApplication {
         }
     }
 
-    /**
-     * 旧的 stdio 子进程模式（用于兼容）
-     */
     private static void runLegacyStdio(HostConfig config, String[] args) throws Exception {
         String launchConfigPath = "run/ai-player/mcp-launch.json";
         boolean noLaunch = false;
@@ -111,26 +108,25 @@ public class McpHostApplication {
 
         mcpClient.start();
 
-        JsonArray tools = null;
+        JsonArray rawTools;
         String gameVersion = "unknown";
         if (!noLaunch) {
             System.out.println("[MCP-Host] 已连接到 MCP Server");
-
             JsonObject initResult = mcpClient.initialize();
             if (initResult != null && initResult.has("serverInfo")) {
                 JsonObject si = initResult.getAsJsonObject("serverInfo");
                 gameVersion = si.has("gameVersion") ? si.get("gameVersion").getAsString() : "unknown";
             }
             System.out.println("[MCP-Host] 握手完成, Minecraft 版本: " + gameVersion);
-
-            tools = mcpClient.listTools();
-            System.out.println("[MCP-Host] 发现 " + tools.size() + " 个工具");
+            rawTools = mcpClient.listTools();
+            System.out.println("[MCP-Host] 发现 " + rawTools.size() + " 个工具");
         } else {
             System.out.println("[MCP-Host] --no-launch 模式：跳过 MCP 握手");
-            tools = new JsonArray();
+            rawTools = new JsonArray();
         }
 
-        LLMBridge llmBridge = new LLMBridge(config, mcpClient, tools, gameVersion);
-        new Repl(llmBridge, mcpClient).run();
+        LLMBridge llmBridge = new LLMBridge(config);
+        Agent agent = new Agent(config, llmBridge, mcpClient, rawTools, gameVersion);
+        new Repl(agent, mcpClient).run();
     }
 }
