@@ -25,6 +25,9 @@ Thumbs.db
 # Temp
 temp/
 
+# Output
+output/
+
 # Logs
 logs/
 

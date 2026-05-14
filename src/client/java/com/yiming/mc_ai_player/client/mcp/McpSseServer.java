@@ -46,7 +46,9 @@ public class McpSseServer {
             PlayerActionExecutor playerAction,
             WorldQueryExecutor worldQuery,
             BlockActionExecutor blockAction,
-            CommandActionExecutor commandAction
+            CommandActionExecutor commandAction,
+            ScanRegionExecutor scanRegion,
+            MonitorRegionExecutor monitorRegion
     ) throws IOException {
         this.port = port;
         this.serverSocket = new ServerSocket(port);
@@ -58,7 +60,7 @@ public class McpSseServer {
                         session.outboundQueue.offer(response);
                     }
                 },
-                playerAction, worldQuery, blockAction, commandAction
+                playerAction, worldQuery, blockAction, commandAction, scanRegion, monitorRegion
         );
     }
 

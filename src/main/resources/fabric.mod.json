@@ -17,6 +17,9 @@
       "com.yiming.mc_ai_player.Mc_ai_player"
     ]
   },
+  "mixins": [
+    "mc_ai_player.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=${loader_version}",
     "fabric-api": "*",

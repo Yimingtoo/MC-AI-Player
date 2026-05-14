@@ -5,7 +5,10 @@ import com.yiming.mcp_host.config.HostConfig;
 import com.yiming.mcp_host.mcp.McpToolExecutor;
 import com.yiming.mcp_host.memory.KnowledgeStore;
 
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.net.URI;
@@ -176,7 +179,7 @@ public class LLMBridge {
                     knowledgeStore.record(functionName, summary, argumentsStr, errorMessage, "error");
                 }
 
-                String resultText = toolResult.toString();
+                String resultText = extractToolResult(toolResult);
 
                 JsonObject toolMsg = new JsonObject();
                 toolMsg.addProperty("role", "tool");
@@ -238,11 +241,16 @@ public class LLMBridge {
             currentHttpFuture = null;
         }
 
+        String responseBody = httpResponse.body();
+
+        // 记录请求和响应到调试日志
+        writeDebugLog(body.toString(), responseBody);
+
         if (httpResponse.statusCode() != 200) {
-            throw new RuntimeException("API 请求失败 [" + httpResponse.statusCode() + "]: " + httpResponse.body());
+            throw new RuntimeException("API 请求失败 [" + httpResponse.statusCode() + "]: " + responseBody);
         }
 
-        JsonObject jsonResponse = JsonParser.parseString(httpResponse.body()).getAsJsonObject();
+        JsonObject jsonResponse = JsonParser.parseString(responseBody).getAsJsonObject();
         return jsonResponse.getAsJsonArray("choices").get(0).getAsJsonObject();
     }
 
@@ -384,6 +392,140 @@ public class LLMBridge {
                 return result;
             }
         }
+    }
+
+    private static int roundtripCounter = 0;
+
+    /**
+     * 将 LLM 请求和响应写入调试日志文件 output/debug/output_context.md
+     */
+    private void writeDebugLog(String requestBody, String responseBody) {
+        roundtripCounter++;
+        try {
+            Path logPath = Path.of("output", "debug", "output_context.md");
+            FileWriter fw = new FileWriter(logPath.toFile(), StandardCharsets.UTF_8, true);
+            PrintWriter writer = new PrintWriter(fw);
+            writer.println("## Roundtrip " + roundtripCounter + " — " + java.time.LocalDateTime.now().format(
+                    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            writer.println();
+            writer.println("### 请求");
+            writer.println("```json");
+            writer.println(requestBody);
+            writer.println("```");
+            writer.println();
+            writer.println("### 响应");
+            writer.println("```json");
+            writer.println(responseBody);
+            writer.println("```");
+            writer.println();
+            writer.println("---");
+            writer.println();
+            writer.close();
+        } catch (IOException e) {
+            // 静默失败，不影响正常流程
+        }
+    }
+
+    /**
+     * 从 MCP 工具结果中提取内容并以结构化文本（类 YAML）格式返回，
+     * 避免嵌套 JSON 的双重转义，同时更利于大模型阅读。
+     * MCP 结果格式: { content: [{ type: "text", text: "..." }], isError: bool }
+     */
+    private static String extractToolResult(JsonObject toolResult) {
+        if (toolResult == null) return "(空)";
+
+        boolean isError = toolResult.has("isError") && toolResult.get("isError").getAsBoolean();
+
+        if (toolResult.has("content") && toolResult.get("content").isJsonArray()) {
+            JsonArray content = toolResult.getAsJsonArray("content");
+            StringBuilder sb = new StringBuilder();
+            for (JsonElement el : content) {
+                JsonObject item = el.getAsJsonObject();
+                String type = item.has("type") ? item.get("type").getAsString() : "";
+                if ("text".equals(type) && item.has("text")) {
+                    String text = item.get("text").getAsString();
+                    // 尝试解析为 JSON 并格式化
+                    try {
+                        JsonElement parsed = JsonParser.parseString(text);
+                        if (parsed.isJsonArray() || parsed.isJsonObject()) {
+                            if (sb.length() > 0) sb.append("\n");
+                            sb.append(jsonToText(parsed, 0));
+                        } else {
+                            // 已是纯文本（如指令输出），直接使用
+                            if (sb.length() > 0) sb.append("\n");
+                            sb.append(text);
+                        }
+                    } catch (JsonParseException e) {
+                        // 非 JSON 纯文本，直接使用
+                        if (sb.length() > 0) sb.append("\n");
+                        sb.append(text);
+                    }
+                }
+            }
+            if (sb.length() > 0) {
+                if (isError) return "错误:\n" + sb;
+                return sb.toString();
+            }
+        }
+
+        return toolResult.toString();
+    }
+
+    /** 将 JSON 元素递归转换为结构化文本 */
+    private static String jsonToText(JsonElement element, int indent) {
+        if (element == null || element.isJsonNull()) return "~";
+
+        if (element.isJsonPrimitive()) {
+            JsonPrimitive p = element.getAsJsonPrimitive();
+            if (p.isString()) return p.getAsString();
+            if (p.isNumber()) return p.getAsNumber().toString();
+            if (p.isBoolean()) return String.valueOf(p.getAsBoolean());
+            return p.toString();
+        }
+
+        if (element.isJsonObject()) {
+            JsonObject obj = element.getAsJsonObject();
+            if (obj.size() == 0) return "(空)";
+            String pad = "  ".repeat(indent);
+            StringBuilder sb = new StringBuilder();
+            for (var entry : obj.entrySet()) {
+                if (sb.length() > 0) sb.append("\n");
+                sb.append(pad).append(entry.getKey()).append(": ");
+                JsonElement val = entry.getValue();
+                if (val.isJsonObject() || val.isJsonArray()) {
+                    sb.append("\n").append(jsonToText(val, indent + 1));
+                } else {
+                    sb.append(jsonToText(val, 0));
+                }
+            }
+            return sb.toString();
+        }
+
+        if (element.isJsonArray()) {
+            JsonArray arr = element.getAsJsonArray();
+            if (arr.size() == 0) return "(空)";
+            String pad = indent > 0 ? "  ".repeat(indent) : "";
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < arr.size(); i++) {
+                if (sb.length() > 0) sb.append("\n");
+                JsonElement item = arr.get(i);
+                if (item.isJsonObject() || item.isJsonArray()) {
+                    sb.append(pad).append("- ");
+                    String inner = jsonToText(item, indent + 1);
+                    // 将第一行与 "- " 放在同一行，其余行缩进对齐
+                    String[] lines = inner.split("\n", 2);
+                    sb.append(lines[0]);
+                    if (lines.length > 1) {
+                        sb.append("\n").append(lines[1]);
+                    }
+                } else {
+                    sb.append(pad).append("- ").append(jsonToText(item, 0));
+                }
+            }
+            return sb.toString();
+        }
+
+        return element.toString();
     }
 
     private void showToolCall(String name, JsonObject arguments) {

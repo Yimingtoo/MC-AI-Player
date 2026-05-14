@@ -36,11 +36,13 @@ public class McpProtocolHandler {
             PlayerActionExecutor playerAction,
             WorldQueryExecutor worldQuery,
             BlockActionExecutor blockAction,
-            CommandActionExecutor commandAction
+            CommandActionExecutor commandAction,
+            ScanRegionExecutor scanRegion,
+            MonitorRegionExecutor monitorRegion
     ) {
         this.responseSender = responseSender;
         this.toolDefinitions = buildToolDefinitions();
-        registerToolHandlers(playerAction, worldQuery, blockAction, commandAction);
+        registerToolHandlers(playerAction, worldQuery, blockAction, commandAction, scanRegion, monitorRegion);
     }
 
     // ---- Message Routing ----
@@ -289,6 +291,42 @@ public class McpProtocolHandler {
                 prop("command", str("Command to execute")),
                 opt("asPlayer", bool("Execute as player (true) or console (false)"), true)
         ));
+        tools.add(buildTool("scan_region", "Scan a cubic region for non-air blocks. Returns block positions and IDs. Skips unloaded chunks and truncates at maxScanResult.",
+                prop("from", obj(
+                        prop("x", num("Start X")),
+                        prop("y", num("Start Y")),
+                        prop("z", num("Start Z"))
+                )),
+                prop("to", obj(
+                        prop("x", num("End X")),
+                        prop("y", num("End Y")),
+                        prop("z", num("End Z"))
+                )),
+                opt("dimension", str("Dimension (e.g. minecraft:overworld)"))
+        ));
+        tools.add(buildTool("monitor_region_start",
+                "Start monitoring a cubic region across multiple game ticks. " +
+                        "Captures initial snapshot (all blocks including air), then tracks changes per GT. " +
+                        "Use monitor_region_get to retrieve results after duration_ticks have elapsed.",
+                prop("from", obj(
+                        prop("x", num("Start X")),
+                        prop("y", num("Start Y")),
+                        prop("z", num("Start Z"))
+                )),
+                prop("to", obj(
+                        prop("x", num("End X")),
+                        prop("y", num("End Y")),
+                        prop("z", num("End Z"))
+                )),
+                prop("duration_ticks", num("Number of game ticks to monitor (20 GT = 1 second)")),
+                opt("dimension", str("Dimension (e.g. minecraft:overworld)"))
+        ));
+        tools.add(buildTool("monitor_region_get",
+                "Retrieve results from a monitor_region_start session. " +
+                        "If monitoring is still in progress, returns current status. " +
+                        "If completed, returns full change log and cleans up the session.",
+                prop("session_id", str("Session ID returned by monitor_region_start"))
+        ));
 
         return tools;
     }
@@ -299,7 +337,9 @@ public class McpProtocolHandler {
             PlayerActionExecutor playerAction,
             WorldQueryExecutor worldQuery,
             BlockActionExecutor blockAction,
-            CommandActionExecutor commandAction
+            CommandActionExecutor commandAction,
+            ScanRegionExecutor scanRegion,
+            MonitorRegionExecutor monitorRegion
     ) {
         toolHandlers.put("get_player_position", args -> playerAction.handleGetPosition());
         toolHandlers.put("move_player", args -> {
@@ -367,6 +407,27 @@ public class McpProtocolHandler {
         toolHandlers.put("execute_command", args -> {
             ExecuteCommandRequest req = GSON.fromJson(args, ExecuteCommandRequest.class);
             return commandAction.handleExecute(req);
+        });
+        toolHandlers.put("scan_region", args -> {
+            JsonObject fromObj = args.getAsJsonObject("from");
+            JsonObject toObj = args.getAsJsonObject("to");
+            BlockPos from = GSON.fromJson(fromObj, BlockPos.class);
+            BlockPos to = GSON.fromJson(toObj, BlockPos.class);
+            String dimension = getString(args, "dimension");
+            return scanRegion.handleScanRegion(from, to, dimension);
+        });
+        toolHandlers.put("monitor_region_start", args -> {
+            JsonObject fromObj = args.getAsJsonObject("from");
+            JsonObject toObj = args.getAsJsonObject("to");
+            BlockPos from = GSON.fromJson(fromObj, BlockPos.class);
+            BlockPos to = GSON.fromJson(toObj, BlockPos.class);
+            int durationTicks = getInt(args, "duration_ticks");
+            String dimension = getString(args, "dimension");
+            return monitorRegion.handleStart(from, to, durationTicks, dimension);
+        });
+        toolHandlers.put("monitor_region_get", args -> {
+            String sessionId = getString(args, "session_id");
+            return monitorRegion.handleGet(sessionId);
         });
     }
 

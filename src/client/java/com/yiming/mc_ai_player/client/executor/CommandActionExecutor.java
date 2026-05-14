@@ -70,6 +70,8 @@ public class CommandActionExecutor extends ActionExecutor {
                 public void sendMessage(Text message) {
                     if (outputBuilder.length() > 0) outputBuilder.append("\n");
                     outputBuilder.append(message.getString());
+                    // 将指令输出显示在游戏聊天中，带 [AI] 前缀
+                    player.sendMessage(Text.literal("[AI] ").append(message));
                 }
 
                 @Override

@@ -39,6 +39,42 @@ _Avoid_: Cancel, abort, stop, kill
 > **Dev:** "What if an MCP tool call is already executing — say, the Agent already placed blocks in the world?"
 > **Domain expert:** "The Host-side waits are cancelled, but the Minecraft-side effects that already happened are not rolled back. The Host cannot undo what the MCP Server already executed. The Interrupt only affects what the Host is waiting for."
 
+# World Operations
+
+## Region
+
+A cubic volume of the Minecraft world defined by two corner coordinates (`from` and `to`), inclusive on all axes.
+
+A **Region** is specified as a pair of `BlockPos` values — the minimum and maximum corners are computed internally (`min`/`max` of each axis), so the caller may supply any two opposite corners in any order.
+
+_Avoid_: Area, zone, selection, box
+
+## Scan
+
+A read-only operation that iterates over all block positions within a **Region** and collects information about each block.
+
+Initial implementation collects block names (aggregated count per block type). Future extensions may collect block states, light levels, biome data, or other properties.
+
+_Avoid_: Query, inspect, survey, audit
+
+## Monitor
+
+A time-extended observation of a **Region** across multiple Minecraft game ticks (GT).
+
+A **Monitor** captures an initial full snapshot of every block (including air) at GT=0, then for each subsequent GT up to a specified `durationTicks` count, records only the blocks that changed during that GT.
+
+_Avoid_: Watch, observe, track
+
+## MonitoringSession
+
+The runtime state of a single **Monitor** instance. Created by `monitor_region_start`, queried by `monitor_region_get`, and automatically cleaned up when the session completes or expires.
+
+A **MonitoringSession** is a singleton — only one active session may exist at a time. Starting a new session while another is active implicitly stops the previous one.
+
+## Tick Sprint (future)
+
+A mode where the server processes game ticks as fast as possible without waiting for real-time delay, used to accelerate **Monitor** completion. Not yet implemented.
+
 ## Flagged ambiguities
 
 - "cancel" was used interchangeably with "Interrupt" during design — resolved: **Interrupt** is the user-facing action (Ctrl+C), distinct from general cancellation of individual operations.

@@ -9,8 +9,11 @@ import com.yiming.mc_ai_player.config.ModConfig;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 
 import java.io.PrintStream;
+import java.util.HashMap;
+import java.util.Map;
 
 public class Mc_ai_playerClient implements ClientModInitializer {
     private static McpServer mcpServer;
@@ -31,14 +34,41 @@ public class Mc_ai_playerClient implements ClientModInitializer {
         WorldQueryExecutor worldQuery = new WorldQueryExecutor();
         BlockActionExecutor blockAction = new BlockActionExecutor();
         CommandActionExecutor commandAction = new CommandActionExecutor();
+        ScanRegionExecutor scanRegion = new ScanRegionExecutor();
+        MonitorRegionExecutor monitorRegion = new MonitorRegionExecutor();
 
         // Determine transport mode
         ModConfig config = Mc_ai_player.CONFIG_MANAGER.get();
         if ("sse".equals(config.mcpTransport)) {
-            startSseTransport(config, playerAction, worldQuery, blockAction, commandAction);
+            startSseTransport(config, playerAction, worldQuery, blockAction, commandAction, scanRegion, monitorRegion);
         } else {
-            startStdioTransport(playerAction, worldQuery, blockAction, commandAction);
+            startStdioTransport(playerAction, worldQuery, blockAction, commandAction, scanRegion, monitorRegion);
         }
+
+        // Register tick handler for region monitoring
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            var session = com.yiming.mc_ai_player.monitor.MonitoringState.getActiveSession();
+            if (session == null || !session.isActive()) return;
+
+            // Find the monitored world
+            net.minecraft.server.world.ServerWorld targetWorld = null;
+            for (var world : server.getWorlds()) {
+                if (world.getRegistryKey().getValue().toString().equals(session.dimension)) {
+                    targetWorld = world;
+                    break;
+                }
+            }
+            if (targetWorld == null) return;
+
+            // Read current block state for each pending position
+            Map<net.minecraft.util.math.BlockPos, String> currentStates = new HashMap<>();
+            for (var pos : session.getPendingPositions()) {
+                net.minecraft.util.Identifier id = net.minecraft.registry.Registries.BLOCK.getId(targetWorld.getBlockState(pos).getBlock());
+                currentStates.put(pos, id.toString());
+            }
+
+            session.advanceTick(currentStates);
+        });
 
         // Register /mcai command
         CommandRegistrationCallback.EVENT.register(McAiPlayerCommand::register);
@@ -53,11 +83,13 @@ public class Mc_ai_playerClient implements ClientModInitializer {
                                     PlayerActionExecutor playerAction,
                                     WorldQueryExecutor worldQuery,
                                     BlockActionExecutor blockAction,
-                                    CommandActionExecutor commandAction) {
+                                    CommandActionExecutor commandAction,
+                                    ScanRegionExecutor scanRegion,
+                                    MonitorRegionExecutor monitorRegion) {
         try {
             mcpSseServer = new McpSseServer(
                     config.mcpPort,
-                    playerAction, worldQuery, blockAction, commandAction
+                    playerAction, worldQuery, blockAction, commandAction, scanRegion, monitorRegion
             );
             mcpSseServer.start();
         } catch (Exception e) {
@@ -69,11 +101,13 @@ public class Mc_ai_playerClient implements ClientModInitializer {
     private void startStdioTransport(PlayerActionExecutor playerAction,
                                      WorldQueryExecutor worldQuery,
                                      BlockActionExecutor blockAction,
-                                     CommandActionExecutor commandAction) {
+                                     CommandActionExecutor commandAction,
+                                     ScanRegionExecutor scanRegion,
+                                     MonitorRegionExecutor monitorRegion) {
         PrintStream originalStdout = System.out;
         System.setOut(System.err);
 
-        mcpServer = new McpServer(originalStdout, playerAction, worldQuery, blockAction, commandAction);
+        mcpServer = new McpServer(originalStdout, playerAction, worldQuery, blockAction, commandAction, scanRegion, monitorRegion);
         mcpServer.start();
     }
 }

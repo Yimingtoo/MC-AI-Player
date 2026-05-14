@@ -22,12 +22,14 @@ public class McpServer {
         PlayerActionExecutor playerAction,
         WorldQueryExecutor worldQuery,
         BlockActionExecutor blockAction,
-        CommandActionExecutor commandAction
+        CommandActionExecutor commandAction,
+        ScanRegionExecutor scanRegion,
+        MonitorRegionExecutor monitorRegion
     ) {
         this.mcpOut = mcpOut;
         this.handler = new McpProtocolHandler(
             this::writeMessage,
-            playerAction, worldQuery, blockAction, commandAction
+            playerAction, worldQuery, blockAction, commandAction, scanRegion, monitorRegion
         );
     }
 

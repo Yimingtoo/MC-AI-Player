@@ -7,14 +7,43 @@ import com.yiming.mcp_host.config.HostConfig;
 import com.yiming.mcp_host.llm.LLMBridge;
 import com.yiming.mcp_host.mcp.McpClient;
 import com.yiming.mcp_host.mcp.McpSseClient;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 
 public class McpHostApplication {
+
+    private static final Path DEBUG_LOG_PATH = Path.of("output", "debug", "output_context.md");
+
+    private static void initDebugLog() {
+        try {
+            File dir = DEBUG_LOG_PATH.getParent().toFile();
+            if (!dir.exists()) dir.mkdirs();
+            // 使用空内容清空文件并写入头部
+            PrintWriter writer = new PrintWriter(new FileWriter(DEBUG_LOG_PATH.toFile(), StandardCharsets.UTF_8));
+            writer.println("# LLM 上下文记录");
+            writer.println();
+            writer.println("> 文件在每次 MCP Host 启动时自动清空。");
+            writer.println();
+            writer.println("---");
+            writer.println();
+            writer.close();
+            System.out.println("[MCP-Host] 调试日志已初始化: " + DEBUG_LOG_PATH.toAbsolutePath());
+        } catch (IOException e) {
+            System.err.println("[MCP-Host] 初始化调试日志失败: " + e.getMessage());
+        }
+    }
 
     public static void main(String[] args) {
         // 强制 UTF-8 输出
         System.setOut(new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8));
         System.setErr(new java.io.PrintStream(System.err, true, StandardCharsets.UTF_8));
+
+        // 初始化调试日志（清空 output/debug/output_context.md）
+        initDebugLog();
 
         // 解析 CLI 参数
         String apiKey = null;

@@ -4,6 +4,8 @@ import java.util.List;
 
 public class ModConfig {
     public int maxBuildVolume = 32768;
+    public int maxScanVolume = 1000;
+    public int maxScanResult = 512;
     public int maxQueryRange = 64;
     public boolean enableBlockOperations = true;
     public boolean enablePlayerMovement = true;
