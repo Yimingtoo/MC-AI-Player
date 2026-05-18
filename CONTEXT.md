@@ -78,3 +78,32 @@ A mode where the server processes game ticks as fast as possible without waiting
 ## Flagged ambiguities
 
 - "cancel" was used interchangeably with "Interrupt" during design — resolved: **Interrupt** is the user-facing action (Ctrl+C), distinct from general cancellation of individual operations.
+
+# Knowledge System
+
+The Agent maintains a cross-session knowledge base of tool usage experience, persisted to `run/ai-player/knowledge.json`.
+
+## KnowledgeEntry
+
+A single piece of learned information. Each entry has a `tool` association, a `title` (short label), a `summary` (full detail), and a `category` classifying its type.
+
+_Avoid_: Record, fact, hint, documentation
+
+## Injection
+
+The mechanism by which knowledge reaches the LLM's context. Uses a **hybrid progressive disclosure** model:
+
+**Index injection** (push, always):
+A compact one-line-per-entry title list is embedded in the system prompt at session start. All entries are listed, none omitted.
+
+**Auto injection** (push, conditional):
+After a tool call returns and before the next roundtrip, the top-K (K ≤ 3) matching knowledge entries are injected as a truncated summary (title + first 100 chars) in a standalone `role=system` message.
+
+**Search injection** (pull, on demand):
+The LLM may call `_search_knowledge(query)` to retrieve full details of relevant entries at any time. Results are ranked by TF-IDF similarity (character bigram + whitespace tokenization, no external dependencies), with a dynamic threshold returning up to 5 matches.
+
+## First-roundtrip coverage
+
+To avoid wasting a roundtrip before the LLM discovers relevant knowledge, the system also performs auto injection before the first `callDeepseek` — using the user's raw input as the search query. The system prompt also instructs the LLM to proactively search knowledge before calling tools.
+
+_Avoid_: Knowledge dump, context stuffing, full injection
