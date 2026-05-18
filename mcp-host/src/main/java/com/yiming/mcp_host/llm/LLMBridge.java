@@ -60,12 +60,13 @@ public class LLMBridge {
                 + "\n\n当前 Minecraft 版本: " + gameVersion
                 + "（使用数据组件语法，例如附魔用 [enchantments={levels:{\"minecraft:protection\":4}}]）"
                 + "\n\n如果你发现某个工具调用返回了错误，并且怀疑是工具本身的问题（而非参数错误），请使用 _report_error 工具向开发者反馈错误信息，包括出错的工具名称、参数、错误信息和你对错误原因的分析。"
-                + "\n\n如果你发现某个工具的高效用法、参数技巧或最佳实践（例如：某个参数值效果更好、调用顺序更优化），请使用 _save_tip 工具记录这些优化经验。这些经验会在后续对话中自动加载，帮助你自己和其他人更高效地使用工具。";
+                + "\n\n如果你发现某个工具的高效用法、参数技巧或最佳实践（例如：某个参数值效果更好、调用顺序更优化），请使用 _save_tip 工具记录这些优化经验。这些经验会在后续对话中自动加载，帮助你自己和其他人更高效地使用工具。"
+                + "\n\n在第一次调用任何工具前，建议先使用 _search_knowledge 工具搜索当前任务相关的历史经验，避免重复踩坑。";
 
-        // 注入跨对话经验知识
-        String knowledge = knowledgeStore.getSummary();
-        if (!knowledge.isEmpty()) {
-            systemContent += "\n\n" + knowledge;
+        // 注入跨对话经验知识摘要（渐进式披露：仅标题索引）
+        String knowledgeIndex = knowledgeStore.getIndex();
+        if (!knowledgeIndex.isEmpty()) {
+            systemContent += "\n\n" + knowledgeIndex;
         }
 
         systemMsg.addProperty("content", systemContent);
@@ -102,6 +103,15 @@ public class LLMBridge {
 
         StringBuilder accumulatedContent = new StringBuilder();
 
+        // 首轮 roundtrip 前自动注入与用户消息相关的知识
+        String preKnowledge = knowledgeStore.search(userMessage);
+        if (!preKnowledge.isEmpty()) {
+            JsonObject knowledgeMsg = new JsonObject();
+            knowledgeMsg.addProperty("role", "system");
+            knowledgeMsg.addProperty("content", preKnowledge);
+            conversation.add(knowledgeMsg);
+        }
+
         for (int round = 0; round < config.getMaxToolRoundtrips(); round++) {
             if (cancelled) {
                 throw new TaskCancelledException("任务已被用户中断");
@@ -129,6 +139,26 @@ public class LLMBridge {
             assistantMsg.add("content", content.isEmpty() ? JsonNull.INSTANCE : new JsonPrimitive(content));
             assistantMsg.add("tool_calls", toolCalls);
             conversation.add(assistantMsg);
+
+            // 构建搜索查询用于本轮工具调用后的知识自动注入
+            StringBuilder injectionQuery = new StringBuilder();
+            for (JsonElement tcElem : toolCalls) {
+                JsonObject tc = tcElem.getAsJsonObject();
+                String fn = tc.getAsJsonObject("function").get("name").getAsString();
+                if (!fn.startsWith("_")) {
+                    injectionQuery.append(fn).append(" ");
+                    String argStr = tc.getAsJsonObject("function").get("arguments").getAsString();
+                    try {
+                        JsonObject args = JsonParser.parseString(argStr).getAsJsonObject();
+                        for (String key : args.keySet()) {
+                            JsonElement val = args.get(key);
+                            if (val.isJsonPrimitive()) {
+                                injectionQuery.append(val.getAsString()).append(" ");
+                            }
+                        }
+                    } catch (Exception e) { /* skip */ }
+                }
+            }
 
             // 逐个执行工具调用
             for (JsonElement tcElem : toolCalls) {
@@ -186,6 +216,18 @@ public class LLMBridge {
                 toolMsg.addProperty("tool_call_id", toolCallId);
                 toolMsg.addProperty("content", resultText);
                 conversation.add(toolMsg);
+            }
+
+            // 工具执行完成后，自动注入相关知识（截断摘要）供下一轮 LLM 参考
+            String postQuery = injectionQuery.toString().strip();
+            if (!postQuery.isEmpty()) {
+                String knowledge = knowledgeStore.search(postQuery);
+                if (!knowledge.isEmpty()) {
+                    JsonObject knowledgeMsg = new JsonObject();
+                    knowledgeMsg.addProperty("role", "system");
+                    knowledgeMsg.addProperty("content", knowledge);
+                    conversation.add(knowledgeMsg);
+                }
             }
         }
 
@@ -332,6 +374,27 @@ public class LLMBridge {
         tipFunc.add("parameters", tipParams);
         tipTool.add("function", tipFunc);
         this.toolsDefinition.add(tipTool);
+
+        // 添加 _search_knowledge 工具定义，供 LLM 按需搜索知识详情
+        JsonObject searchTool = new JsonObject();
+        searchTool.addProperty("type", "function");
+        JsonObject searchFunc = new JsonObject();
+        searchFunc.addProperty("name", "_search_knowledge");
+        searchFunc.addProperty("description", "搜索跨对话积累的工具使用经验和技巧。在调用任何工具前，建议先搜索当前任务相关经验。参数 query 请用自然语言描述你需要知道的内容。");
+        JsonObject searchParams = new JsonObject();
+        searchParams.addProperty("type", "object");
+        JsonObject searchProps = new JsonObject();
+        JsonObject queryProp = new JsonObject();
+        queryProp.addProperty("type", "string");
+        queryProp.addProperty("description", "搜索查询，用自然语言描述需要了解的内容（如：'gamerule命令格式'、'locate查找结构'）");
+        searchProps.add("query", queryProp);
+        searchParams.add("properties", searchProps);
+        JsonArray searchRequired = new JsonArray();
+        searchRequired.add("query");
+        searchParams.add("required", searchRequired);
+        searchFunc.add("parameters", searchParams);
+        searchTool.add("function", searchFunc);
+        this.toolsDefinition.add(searchTool);
     }
 
     private JsonObject handleLocalToolCall(String name, JsonObject arguments) {
@@ -384,6 +447,28 @@ public class LLMBridge {
                 JsonObject r = new JsonObject();
                 r.addProperty("success", true);
                 r.addProperty("message", "优化技巧已保存到知识库，下次启动时自动加载");
+                return r;
+            }
+            case "_search_knowledge" -> {
+                String query = arguments.has("query") ? arguments.get("query").getAsString() : "";
+                String searchResult = knowledgeStore.search(query);
+                if (searchResult.isEmpty()) {
+                    JsonObject r = new JsonObject();
+                    JsonArray content = new JsonArray();
+                    JsonObject textItem = new JsonObject();
+                    textItem.addProperty("type", "text");
+                    textItem.addProperty("text", "未找到相关知识。");
+                    content.add(textItem);
+                    r.add("content", content);
+                    return r;
+                }
+                JsonObject r = new JsonObject();
+                JsonArray content = new JsonArray();
+                JsonObject textItem = new JsonObject();
+                textItem.addProperty("type", "text");
+                textItem.addProperty("text", searchResult);
+                content.add(textItem);
+                r.add("content", content);
                 return r;
             }
             default -> {
